@@ -98,6 +98,16 @@ if df is not None:
                     ],
                     help="Change the background map appearance"
                 )
+                 # Number input for opacity
+                grid_opacity = st.sidebar.number_input(
+                            "Grid opacity", 
+                            min_value=0.0, 
+                            max_value=1.0, 
+                            value=grid_opacity, 
+                            step=0.05,
+                            help="Transparency of grid cells (0=transparent, 1=opaque)"
+                        )
+
                 
                 # Calculate center of the map
                 center_lat = plot_df[y_axis].mean()
@@ -170,16 +180,7 @@ if df is not None:
                             help="Height of each grid cell in latitude units"
                         )
                         
-                        # Number input for opacity
-                        grid_opacity = st.number_input(
-                            "Grid opacity", 
-                            min_value=0.0, 
-                            max_value=1.0, 
-                            value=grid_opacity, 
-                            step=0.05,
-                            help="Transparency of grid cells (0=transparent, 1=opaque)"
-                        )
-                    
+                                           
                     # Create GeoJSON-like features for each grid cell
                     features = []
                     
