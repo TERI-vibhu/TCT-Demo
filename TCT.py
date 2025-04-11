@@ -99,6 +99,7 @@ if df is not None:
                     help="Change the background map appearance"
                 )
                  # Number input for opacity
+                grid_opacity = 0.8 
                 grid_opacity = st.sidebar.number_input(
                             "Grid opacity", 
                             min_value=0.0, 
@@ -156,7 +157,7 @@ if df is not None:
                         y_diff = 0.1
                     
                     # Default opacity value before advanced settings
-                    grid_opacity = 0.8
+                    
                     cell_width = float(x_diff)
                     cell_height = float(y_diff)
                     
