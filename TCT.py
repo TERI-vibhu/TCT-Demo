@@ -99,7 +99,7 @@ if df is not None:
                     help="Change the background map appearance"
                 )
                  # Number input for opacity
-                #grid_opacity = 0.8 
+                grid_opacity = 0.8 
                 grid_opacity = st.sidebar.number_input(
                             "Grid opacity", 
                             min_value=0.0, 
