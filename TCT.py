@@ -122,9 +122,9 @@ st.sidebar.header("Controls")
 
 # Define available default files
 default_files = {
-    "Maximum Temperature Average": "/home/vibhu/Downloads/TCT/gridpoint_temperature_stats_max.csv",
-    "Minimum Temperature Average": "/home/vibhu/Downloads/TCT/gridpoint_temperature_stats_min.csv",
-    "Dataset C (Example: Path to dataset C)": "/path/to/datasetC.csv",
+    "Maximum Temperature Average": "gridpoint_temperature_stats_max.csv",
+    "Minimum Temperature Average": "gridpoint_temperature_stats_min.csv",
+    #"Dataset C (Example: Path to dataset C)": "/path/to/datasetC.csv",
     "Upload my own CSV file": "upload"  # This entry is used to trigger upload mode.
 }
 
