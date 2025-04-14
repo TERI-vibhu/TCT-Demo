@@ -9,7 +9,7 @@ import numpy as np
 def load_default_data(file_path):
     try:
         df = pd.read_csv(file_path)
-        st.sidebar.success("Using default dataset")
+        st.sidebar.success(f"Using default dataset: {file_path}")
         return df
     except FileNotFoundError:
         st.sidebar.error(f"Default file not found: {file_path}")
@@ -47,7 +47,6 @@ def create_grid_heatmap(df, x_axis, y_axis, values, color_scale, map_style, zoom
         lon = row[x_axis]
         lat = row[y_axis]
         val = row[values]
-
         feature = {
             "type": "Feature",
             "id": idx,
@@ -69,10 +68,7 @@ def create_grid_heatmap(df, x_axis, y_axis, values, color_scale, map_style, zoom
         }
         features.append(feature)
 
-    geojson = {
-        "type": "FeatureCollection",
-        "features": features
-    }
+    geojson = {"type": "FeatureCollection", "features": features}
 
     fig = go.Figure(go.Choroplethmapbox(
         geojson=geojson,
@@ -82,17 +78,16 @@ def create_grid_heatmap(df, x_axis, y_axis, values, color_scale, map_style, zoom
         marker_opacity=grid_opacity,
         marker_line_width=0,
         colorbar=dict(title=values),
-        customdata=np.stack((
-            [f["properties"]["lat"] for f in features],
-            [f["properties"]["lon"] for f in features]
-        ), axis=-1),
-        hovertemplate="<b>Lat: %{customdata[0]:.3f}</b><br>Lon: %{customdata[1]:.3f}<br>Value: %{z}<extra></extra>"
+        customdata=np.stack(
+            ([f["properties"]["lat"] for f in features],
+             [f["properties"]["lon"] for f in features]), axis=-1),
+        hovertemplate="<b>Lat: %{customdata[0]:.5f}</b><br>Lon: %{customdata[1]:.5f}<br>Value: %{z}<extra></extra>"
     ))
 
     fig.update_layout(
         mapbox=dict(style=map_style, center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
-        height=1000,
-        width=900
+        height=700,
+        width=1000
     )
 
     return fig
@@ -109,12 +104,12 @@ def create_scatter_plot(df, x_axis, y_axis, values, color_scale, map_style, zoom
             opacity=point_opacity,
             colorbar=dict(title=values),
         ),
-        hovertemplate="<b>Lat: %{lat:.3f}</b><br>Lon: %{lon:.3f}<br>Value: %{marker.color}<extra></extra>"
+        hovertemplate="<b>Lat: %{lat:.5f}</b><br>Lon: %{lon:.5f}<br>Value: %{marker.color}<extra></extra>"
     ))
 
     fig.update_layout(
         mapbox=dict(style=map_style, center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
-        height=1200,
+        height=700,
         width=1000
     )
 
@@ -125,22 +120,33 @@ def create_scatter_plot(df, x_axis, y_axis, values, color_scale, map_style, zoom
 st.title("TCT Demo")
 st.sidebar.header("Controls")
 
-default_file_path = "/home/vibhu/Downloads/TCT/gridpoint_temperature_stats_max.csv"
+# Define available default files
+default_files = {
+    "Maximum Temperature Average": "/home/vibhu/Downloads/TCT/gridpoint_temperature_stats_max.csv",
+    "Minimum Temperature Average": "/home/vibhu/Downloads/TCT/gridpoint_temperature_stats_min.csv",
+    "Dataset C (Example: Path to dataset C)": "/path/to/datasetC.csv",
+    "Upload my own CSV file": "upload"  # This entry is used to trigger upload mode.
+}
 
-data_source = st.sidebar.radio(
-    "Choose data source:",
-    ["Use default dataset", "Upload my own CSV"],
-    help="Select whether to use the built-in dataset or upload your own CSV file"
+# Create a dropdown for data source selection
+selected_source = st.sidebar.selectbox(
+    "Select data source:",
+    options=list(default_files.keys()),
+    help="Choose a default dataset or opt to upload your own CSV file."
 )
 
 df = None
-if data_source == "Use default dataset":
-    df = load_default_data(default_file_path)
-else:
-    uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type="csv", 
-                                             help="Upload your own CSV file with 'lon' and 'lat' columns")
+if selected_source == "Upload my own CSV file":
+    uploaded_file = st.sidebar.file_uploader(
+        "Choose a CSV file", 
+        type="csv",
+        help="Upload your own CSV file with 'lon' and 'lat' columns"
+    )
     if uploaded_file:
         df = load_uploaded_data(uploaded_file)
+else:
+    default_file_path = default_files[selected_source]
+    df = load_default_data(default_file_path)
 
 if df is not None:
     show_raw_data = st.sidebar.checkbox("Show raw data", value=False,
@@ -175,14 +181,8 @@ if df is not None:
             if viz_type == "Grid Heatmap":
                 x_vals = df[x_axis].unique()
                 y_vals = df[y_axis].unique()
-                if len(x_vals) > 1:
-                    x_diff = np.min(np.diff(np.sort(x_vals)))
-                else:
-                    x_diff = 0.1
-                if len(y_vals) > 1:
-                    y_diff = np.min(np.diff(np.sort(y_vals)))
-                else:
-                    y_diff = 0.1
+                x_diff = np.min(np.diff(np.sort(x_vals))) if len(x_vals) > 1 else 0.1
+                y_diff = np.min(np.diff(np.sort(y_vals))) if len(y_vals) > 1 else 0.1
 
                 with st.sidebar.expander("Advanced Settings", expanded=False):
                     cell_width = st.number_input("Cell Width (longitude)", value=float(x_diff), step=0.001, format="%.5f",
@@ -217,7 +217,7 @@ if df is not None:
         st.error(f"Required column(s) missing from the dataset: {', '.join(missing_cols)}")
         st.info("Your CSV file must contain 'lon' and 'lat' columns for this visualization.")
 else:
-    if data_source == "Use default dataset":
-        st.info("Default dataset could not be loaded. Please check the file path or upload your own file.")
+    if selected_source != "Upload my own CSV file":
+        st.info("Default dataset could not be loaded. Please check the file path or select a different file.")
     else:
         st.info("Please upload a CSV file to get started.")
