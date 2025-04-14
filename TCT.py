@@ -1,30 +1,51 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import numpy as np
+import plotly.graph_objects as go
+import xarray as xr
+import rasterio
+from rasterio.plot import show
+import tempfile
+import os
 
-# ---------------------- Data Handling Functions ----------------------
+# ------------------------------------
+# Utility Functions
+# ------------------------------------
+def get_file_extension(file_path):
+    return file_path.split('.')[-1].lower()
 
-def load_default_data(file_path):
-    try:
-        df = pd.read_csv(file_path)
-        st.sidebar.success(f"Using default dataset: {file_path}")
-        return df
-    except FileNotFoundError:
-        st.sidebar.error(f"Default file not found: {file_path}")
-    except Exception as e:
-        st.sidebar.error(f"Error loading default data: {str(e)}")
-    return None
+def load_csv_data(file_path):
+    df = pd.read_csv(file_path)
+    return df, "csv"
 
-def load_uploaded_data(uploaded_file):
-    try:
-        df = pd.read_csv(uploaded_file)
-        st.sidebar.success(f"Successfully loaded: {uploaded_file.name}")
-        return df
-    except Exception as e:
-        st.sidebar.error(f"Error loading uploaded file: {str(e)}")
-    return None
+def load_netcdf_data(file_path):
+    ds = xr.open_dataset(file_path)
+    variable = list(ds.data_vars)[0]  # pick the first variable
+    df = ds[variable].squeeze().to_dataframe().reset_index()
+    df = df.dropna()
+    df = df.rename(columns={df.columns[-1]: "value"})
+    df = df.rename(columns={"latitude": "lat", "longitude": "lon"})
+    return df, "netcdf"
+
+def load_tiff_data(file_path):
+    with rasterio.open(file_path) as src:
+        array = src.read(1)
+        array = np.where(array == src.nodata, np.nan, array)
+        bounds = src.bounds
+        res = src.res
+
+        lons = np.arange(bounds.left + res[0]/2, bounds.right, res[0])
+        lats = np.arange(bounds.top - res[1]/2, bounds.bottom, -res[1])
+
+        lon_grid, lat_grid = np.meshgrid(lons, lats)
+
+        df = pd.DataFrame({
+            "lon": lon_grid.flatten(),
+            "lat": lat_grid.flatten(),
+            "value": array.flatten()
+        })
+        df = df.dropna()
+    return df, "tiff"
 
 def calculate_zoom(lat_range, lon_range):
     max_range = max(lat_range, lon_range)
@@ -39,17 +60,33 @@ def calculate_zoom(lat_range, lon_range):
     else:
         return 11
 
-# ---------------------- Visualization Functions ----------------------
+def plot_heatmap(df, values, map_style, color_scale):
+    center_lat = df['lat'].mean()
+    center_lon = df['lon'].mean()
+    zoom = int(calculate_zoom(df['lat'].max() - df['lat'].min(), df['lon'].max() - df['lon'].min()))
 
-def create_grid_heatmap(df, x_axis, y_axis, values, color_scale, map_style, zoom, center_lat, center_lon, cell_width, cell_height, grid_opacity):
+    # Determine default grid size
+    try:
+        x_diff = np.min(np.diff(np.sort(df['lon'].unique())))
+        y_diff = np.min(np.diff(np.sort(df['lat'].unique())))
+    except:
+        x_diff, y_diff = 0.1, 0.1
+
+    # Sidebar advanced options
+    with st.sidebar.expander("Advanced Settings", expanded=False):
+        cell_width = st.number_input("Cell Width (longitude)", value=float(x_diff), step=0.001)
+        cell_height = st.number_input("Cell Height (latitude)", value=float(y_diff), step=0.001)
+        grid_opacity = st.number_input("Grid Opacity", min_value=0.0, max_value=1.0, value=0.8, step=0.05)
+
     features = []
-    for idx, row in df.iterrows():
-        lon = row[x_axis]
-        lat = row[y_axis]
-        val = row[values]
+    for i, row in df.iterrows():
+        lon = row['lon']
+        lat = row['lat']
+        val = row['value']
+
         feature = {
             "type": "Feature",
-            "id": idx,
+            "id": i,
             "geometry": {
                 "type": "Polygon",
                 "coordinates": [[
@@ -69,155 +106,131 @@ def create_grid_heatmap(df, x_axis, y_axis, values, color_scale, map_style, zoom
         features.append(feature)
 
     geojson = {"type": "FeatureCollection", "features": features}
+    locations = [f["id"] for f in features]
+    color_values = [f["properties"]["value"] for f in features]
+    hover_lats = [f["properties"]["lat"] for f in features]
+    hover_lons = [f["properties"]["lon"] for f in features]
 
     fig = go.Figure(go.Choroplethmapbox(
         geojson=geojson,
-        locations=[f["id"] for f in features],
-        z=[f["properties"]["value"] for f in features],
+        locations=locations,
+        z=color_values,
         colorscale=color_scale,
         marker_opacity=grid_opacity,
         marker_line_width=0,
-        colorbar=dict(title=values),
-        customdata=np.stack(
-            ([f["properties"]["lat"] for f in features],
-             [f["properties"]["lon"] for f in features]), axis=-1),
+        colorbar=dict(title="Value"),
+        customdata=np.stack((hover_lats, hover_lons), axis=-1),
         hovertemplate="<b>Lat: %{customdata[0]:.5f}</b><br>Lon: %{customdata[1]:.5f}<br>Value: %{z}<extra></extra>"
     ))
 
     fig.update_layout(
-        mapbox=dict(style=map_style, center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
-        height=700,
-        width=1000
-    )
-
-    return fig
-
-def create_scatter_plot(df, x_axis, y_axis, values, color_scale, map_style, zoom, center_lat, center_lon, point_size, point_opacity):
-    fig = go.Figure(go.Scattermapbox(
-        lat=df[y_axis],
-        lon=df[x_axis],
-        mode='markers',
-        marker=dict(
-            size=point_size,
-            color=df[values],
-            colorscale=color_scale,
-            opacity=point_opacity,
-            colorbar=dict(title=values),
+        mapbox=dict(
+            style=map_style,
+            center=dict(lat=center_lat, lon=center_lon),
+            zoom=zoom
         ),
-        hovertemplate="<b>Lat: %{lat:.5f}</b><br>Lon: %{lon:.5f}<br>Value: %{marker.color}<extra></extra>"
-    ))
-
-    fig.update_layout(
-        mapbox=dict(style=map_style, center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
         height=700,
         width=1000
     )
 
-    return fig
+    st.plotly_chart(fig, use_container_width=True)
 
-# ---------------------- Streamlit UI ----------------------
-
-st.title("TCT Demo")
+# ------------------------------------
+# Streamlit App
+# ------------------------------------
+st.title("TCT Viewer with Multiple File Support")
 st.sidebar.header("Controls")
 
-# Define available default files
+# Example default file options
 default_files = {
-    "Maximum Temperature Average": "gridpoint_temperature_stats_max.csv",
-    "Minimum Temperature Average": "gridpoint_temperature_stats_min.csv",
-    #"Dataset C (Example: Path to dataset C)": "/path/to/datasetC.csv",
-    "Upload my own CSV file": "upload"  # This entry is used to trigger upload mode.
+    "Minimum Average Temperature": "/home/vibhu/Downloads/TCT/gridpoint_temperature_stats_min.csv",
+    "Maximum Average Temperature": "/home/vibhu/Downloads/TCT/gridpoint_temperature_stats_max.csv",
+    #"Example TIFF": "path/to/example3.tif"
 }
 
-# Create a dropdown for data source selection
-selected_source = st.sidebar.selectbox(
-    "Select data source:",
-    options=list(default_files.keys()),
-    help="Choose a default dataset or opt to upload your own CSV file."
-)
+data_source = st.sidebar.radio("Choose Data Source:", ["Use Default File", "Upload My Own File"])
 
-df = None
-if selected_source == "Upload my own CSV file":
-    uploaded_file = st.sidebar.file_uploader(
-        "Choose a CSV file", 
-        type="csv",
-        help="Upload your own CSV file with 'lon' and 'lat' columns"
-    )
-    if uploaded_file:
-        df = load_uploaded_data(uploaded_file)
+df, file_type = None, None
+
+if data_source == "Use Default File":
+    selected_file = st.sidebar.selectbox("Select a file:", list(default_files.keys()))
+    file_path = default_files[selected_file]
+    ext = get_file_extension(file_path)
+
+    if ext == "csv":
+        df, file_type = load_csv_data(file_path)
+    elif ext in ["nc", "netcdf"]:
+        df, file_type = load_netcdf_data(file_path)
+    elif ext in ["tif", "tiff"]:
+        df, file_type = load_tiff_data(file_path)
+    else:
+        st.sidebar.error("Unsupported file type.")
 else:
-    default_file_path = default_files[selected_source]
-    df = load_default_data(default_file_path)
+    uploaded_file = st.sidebar.file_uploader("Upload file", type=["csv", "nc", "netcdf", "tif", "tiff"])
+    if uploaded_file is not None:
+        ext = get_file_extension(uploaded_file.name)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmp_file:
+            tmp_file.write(uploaded_file.read())
+            tmp_file_path = tmp_file.name
+        try:
+            if ext == "csv":
+                df, file_type = load_csv_data(tmp_file_path)
+            elif ext in ["nc", "netcdf"]:
+                df, file_type = load_netcdf_data(tmp_file_path)
+            elif ext in ["tif", "tiff"]:
+                df, file_type = load_tiff_data(tmp_file_path)
+            else:
+                st.sidebar.error("Unsupported file type.")
+        finally:
+            os.remove(tmp_file_path)
 
+# ------------------------------------
+# Visualization
+# ------------------------------------
 if df is not None:
-    show_raw_data = st.sidebar.checkbox("Show raw data", value=False,
-                                        help="Display the raw data table below the visualization")
-    if show_raw_data:
-        st.subheader("Raw data")
+    st.sidebar.subheader("Visualization Settings")
+    show_raw = st.sidebar.checkbox("Show Raw Data", value=False)
+
+    if show_raw:
         st.write(df)
 
-    viz_type = st.sidebar.radio("Select visualization type:", ["Grid Heatmap", "Scatter Plot"],
-                                help="Choose between grid cells (heatmap) or points (scatter)")
+    map_style = st.sidebar.selectbox("Map Style", ["carto-positron","open-street-map" , "stamen-terrain"])
+    color_scale = st.sidebar.selectbox("Color Scale", ["Viridis", "Plasma", "Inferno", "Cividis", "Blues", "Reds"])
 
-    x_axis, y_axis = 'lon', 'lat'
+    if file_type == "csv":
+        viz_type = st.sidebar.radio("Visualization Type", ["Grid Heatmap", "Scatter Plot"])
+        value_col = st.sidebar.selectbox("Value Column", [col for col in df.columns if col not in ["lon", "lat"]])
+        df = df.rename(columns={value_col: "value"})
 
-    if x_axis in df.columns and y_axis in df.columns:
-        numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
-        value_options = [col for col in numeric_cols if col not in [x_axis, y_axis]]
+        if viz_type == "Scatter Plot":
+            fig = go.Figure(go.Scattermapbox(
+                lat=df['lat'],
+                lon=df['lon'],
+                mode='markers',
+                marker=dict(
+                    size=8,
+                    color=df['value'],
+                    colorscale=color_scale,
+                    opacity=0.7,
+                    colorbar=dict(title="Value"),
+                ),
+                hovertemplate="<b>Lat: %{lat:.5f}</b><br>Lon: %{lon:.5f}<br>Value: %{marker.color}<extra></extra>"
+            ))
 
-        if value_options:
-            values = st.sidebar.selectbox("Select values column", value_options,
-                                          help="Choose which data column to visualize with colors")
-            map_style = st.sidebar.selectbox("Select map style", [
-                "open-street-map", "carto-positron", "carto-darkmatter", "stamen-terrain", "stamen-toner"
-            ], help="Change the background map appearance")
-            color_scale = st.sidebar.selectbox("Color scale", [
-                'Viridis', 'Plasma', 'Inferno', 'Magma', 'Cividis', 'Blues', 'Reds'
-            ], help="Select the color palette for visualization")
+            fig.update_layout(
+                mapbox=dict(
+                    style=map_style,
+                    center=dict(lat=df['lat'].mean(), lon=df['lon'].mean()),
+                    zoom=int(calculate_zoom(df['lat'].max() - df['lat'].min(), df['lon'].max() - df['lon'].min()))
+                ),
+                height=700,
+                width=1000
+            )
 
-            center_lat = df[y_axis].mean()
-            center_lon = df[x_axis].mean()
-            zoom = int(calculate_zoom(np.ptp(df[y_axis].values), np.ptp(df[x_axis].values)))
-
-            if viz_type == "Grid Heatmap":
-                x_vals = df[x_axis].unique()
-                y_vals = df[y_axis].unique()
-                x_diff = np.min(np.diff(np.sort(x_vals))) if len(x_vals) > 1 else 0.1
-                y_diff = np.min(np.diff(np.sort(y_vals))) if len(y_vals) > 1 else 0.1
-
-                with st.sidebar.expander("Advanced Settings", expanded=False):
-                    cell_width = st.number_input("Cell Width (longitude)", value=float(x_diff), step=0.001, format="%.5f",
-                                                 help="Width of each grid cell in longitude units")
-                    cell_height = st.number_input("Cell Height (latitude)", value=float(y_diff), step=0.001, format="%.5f",
-                                                  help="Height of each grid cell in latitude units")
-                    grid_opacity = st.number_input("Grid opacity", min_value=0.0, max_value=1.0, value=0.8, step=0.05,
-                                                   help="Transparency of grid cells (0=transparent, 1=opaque)")
-
-                fig = create_grid_heatmap(df, x_axis, y_axis, values, color_scale, map_style, zoom,
-                                          center_lat, center_lon, cell_width, cell_height, grid_opacity)
-                st.plotly_chart(fig, use_container_width=True)
-
-            else:  # Scatter Plot
-                with st.sidebar.expander("Advanced Settings", expanded=False):
-                    point_size = st.number_input("Point Size", min_value=2, max_value=20, value=6, step=1,
-                                                 help="Size of each data point on the map")
-                    point_opacity = st.number_input("Point Opacity", min_value=0.0, max_value=1.0, value=0.8, step=0.05,
-                                                    help="Transparency of points (0=transparent, 1=opaque)")
-
-                fig = create_scatter_plot(df, x_axis, y_axis, values, color_scale, map_style, zoom,
-                                          center_lat, center_lon, point_size, point_opacity)
-                st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            st.error("No suitable numerical columns found for values")
+            plot_heatmap(df, "value", map_style, color_scale)
     else:
-        missing_cols = []
-        if x_axis not in df.columns:
-            missing_cols.append(x_axis)
-        if y_axis not in df.columns:
-            missing_cols.append(y_axis)
-        st.error(f"Required column(s) missing from the dataset: {', '.join(missing_cols)}")
-        st.info("Your CSV file must contain 'lon' and 'lat' columns for this visualization.")
+        plot_heatmap(df, "value", map_style, color_scale)
 else:
-    if selected_source != "Upload my own CSV file":
-        st.info("Default dataset could not be loaded. Please check the file path or select a different file.")
-    else:
-        st.info("Please upload a CSV file to get started.")
+    st.info("Please select or upload a file to begin.")
