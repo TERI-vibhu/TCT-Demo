@@ -138,7 +138,7 @@ def plot_heatmap(df, values, map_style, color_scale):
 # ------------------------------------
 # Streamlit App
 # ------------------------------------
-st.title("TCT Viewer with Multiple File Support")
+st.title("TCT Demo")
 st.sidebar.header("Controls")
 
 # Example default file options
