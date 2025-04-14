@@ -1,7 +1,7 @@
+xarray
+netCDF4
+rasterio
+plotly
 streamlit
 pandas
-plotly.express
 numpy
-plotly
-xarray
-rasterio
