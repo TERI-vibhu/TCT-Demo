@@ -150,16 +150,6 @@ default_files = {
     #"Rainfall 1994-2023 TIFF ": "IMD_RF_avg_1994-2023.tif"
 }
 
-'''
-default_files = {
-    "Rainfall 1994-2023 Netcdf": "/home/vibhu/Downloads/TCT/IMD_RF_AVG_after1994.nc",
-    "Minimum Average Temperature": "/home/vibhu/Downloads/TCT/gridpoint_temperature_stats_min.csv",
-    "Maximum Average Temperature": "/home/vibhu/Downloads/TCT/gridpoint_temperature_stats_max.csv"
- 
-    #"Rainfall 1994-2023 TIFF ": "/home/vibhu/Downloads/TCT/IMD_RF_avg_1994-2023.tif"
-    #"Example TIFF": "path/to/example3.tif"
-}
-'''
 data_source = st.sidebar.radio("Choose Data Source:", ["Use Default File", "Upload My Own File"])
 
 df, file_type = None, None
