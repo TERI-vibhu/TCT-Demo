@@ -143,9 +143,10 @@ st.sidebar.header("Controls")
 
 # Example default file options
 default_files = {
+    "Rainfall 1994-2023 Netcdf": "IMD_RF_AVG_after1994.nc",
     "Minimum Average Temperature": "gridpoint_temperature_stats_min.csv",
     "Maximum Average Temperature": "gridpoint_temperature_stats_max.csv",
-    "Rainfall 1994-2023 Netcdf": "IMD_RF_AVG_after1994.nc",
+    #"Rainfall 1994-2023 Netcdf": "IMD_RF_AVG_after1994.nc",
     "Rainfall 1994-2023 TIFF ": "IMD_RF_avg_1994-2023.tif"
 }
 
@@ -196,7 +197,7 @@ if df is not None:
         st.write(df)
 
     map_style = st.sidebar.selectbox("Map Style", ["carto-positron","open-street-map" , "stamen-terrain"])
-    color_scale = st.sidebar.selectbox("Color Scale", ["Viridis", "Plasma", "Inferno", "Cividis", "Blues", "Reds"])
+    color_scale = st.sidebar.selectbox("Color Scale", ["Blues","Viridis", "Plasma", "Inferno", "Cividis", "Reds"])
 
     if file_type == "csv":
         viz_type = st.sidebar.radio("Visualization Type", ["Grid Heatmap", "Scatter Plot"])
