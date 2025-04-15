@@ -5,3 +5,4 @@ plotly
 streamlit
 pandas
 numpy
+geopandas
