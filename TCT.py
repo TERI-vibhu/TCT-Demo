@@ -30,10 +30,15 @@ def load_csv_data(file_path):
     df = pd.read_csv(file_path)
     return df, "csv"
 
-def load_netcdf_data(file_path):
-    """Loads NetCDF data and converts it to a DataFrame."""
+def load_netcdf_data(file_path, selected_variable=None):
+    """Loads NetCDF data and converts it to a DataFrame with the selected variable."""
     ds = xr.open_dataset(file_path)
-    variable = list(ds.data_vars)[0]
+    available_vars = list(ds.data_vars)
+    if not available_vars:
+        st.error("No variables found in NetCDF file.")
+        return None, None, []
+    # If no variable is selected, use the first one
+    variable = selected_variable if selected_variable in available_vars else available_vars[0]
     df = ds[variable].squeeze().to_dataframe().reset_index()
     df = df.dropna()
     df = df.rename(columns={df.columns[-1]: "value"})
@@ -41,8 +46,8 @@ def load_netcdf_data(file_path):
         df = df.rename(columns={"latitude": "lat", "longitude": "lon"})
     elif 'lat' not in df.columns and 'lon' not in df.columns:
         st.error("Latitude/Longitude columns not found.")
-        return None, None
-    return df, "netcdf"
+        return None, None, []
+    return df, "netcdf", available_vars
 
 def load_tiff_data(file_path):
     """Loads TIFF data and converts it to a DataFrame."""
@@ -60,7 +65,7 @@ def load_tiff_data(file_path):
             "value": array.flatten()
         })
         df = df.dropna()
-    return df, "tiff"
+    return df, "tiff", ["value"]
 
 def load_shapefile(shp_path):
     """Loads a shapefile using geopandas."""
@@ -288,11 +293,12 @@ def plot_csv_scatter(df, map_style, color_scale, file_name):
 # ------------------------------------
 # Section C: Data Loading Functions
 # ------------------------------------
-def load_data_file(upload_own_data, default_files):
-    """Loads data file based on user selection."""
-    df, file_type, tmp_file_path, selected_file, uploaded_file_name = None, None, None, None, None
-    if upload_own_data:
-        uploaded_file = st.sidebar.file_uploader("Upload Your Data File", type=["csv", "nc", "netcdf", "tif", "tiff"])
+def load_data_file(selected_option, default_files):
+    """Loads data file based on user selection and allows value column selection."""
+    df, file_type, tmp_file_path, selected_file, uploaded_file_name, available_cols, value_col = None, None, None, None, None, [], None
+    
+    if selected_option == "Upload Your Own Data":
+        uploaded_file = st.sidebar.file_uploader("Upload Your Data File", type=["csv", "nc", "netcdf", "tif", "tiff"], key="data_file_uploader")
         if uploaded_file is not None:
             uploaded_file_name = uploaded_file.name
             ext = get_file_extension(uploaded_file.name)
@@ -301,25 +307,32 @@ def load_data_file(upload_own_data, default_files):
                 tmp_file_path = tmp_file.name
             if ext == "csv":
                 df, file_type = load_csv_data(tmp_file_path)
+                available_cols = [col for col in df.columns if col not in ["lon", "lat"]]
             elif ext in ["nc", "netcdf"]:
-                df, file_type = load_netcdf_data(tmp_file_path)
+                df, file_type, available_cols = load_netcdf_data(tmp_file_path)
             elif ext in ["tif", "tiff"]:
-                df, file_type = load_tiff_data(tmp_file_path)
+                df, file_type, available_cols = load_tiff_data(tmp_file_path)
             else:
                 st.sidebar.error("Unsupported file type.")
     else:
-        selected_file = st.sidebar.selectbox("Select a Default File:", list(default_files.keys()))
+        selected_file = selected_option
         file_path = default_files[selected_file]
         ext = get_file_extension(file_path)
         if ext == "csv":
             df, file_type = load_csv_data(file_path)
+            available_cols = [col for col in df.columns if col not in ["lon", "lat"]]
         elif ext in ["nc", "netcdf"]:
-            df, file_type = load_netcdf_data(file_path)
+            df, file_type, available_cols = load_netcdf_data(file_path)
         elif ext in ["tif", "tiff"]:
-            df, file_type = load_tiff_data(file_path)
+            df, file_type, available_cols = load_tiff_data(file_path)
         else:
             st.sidebar.error("Unsupported file type.")
-    return df, file_type, tmp_file_path, selected_file, uploaded_file_name
+    
+    # Select value column after file is loaded
+    if available_cols:
+        value_col = st.sidebar.selectbox("Select Variable", available_cols, key="value_column")
+    
+    return df, file_type, tmp_file_path, selected_file, uploaded_file_name, available_cols, value_col
 
 def load_shapefile_data(shp_source, default_shapefile):
     """Loads shapefile based on user selection."""
@@ -366,29 +379,16 @@ def setup_ui():
 
     return default_files, default_shapefile
 
-
-
-def setup_visualization_settings(df, file_type, upload_own_data):
+def setup_visualization_settings():
     """Sets up visualization settings in the sidebar."""
-    st.sidebar.markdown("<h3 style='color: #dc6142';'>Visualization Settings</h3>", unsafe_allow_html=True)
-    
     with st.sidebar.expander("Advanced Data Settings", expanded=False):
-        upload_own_data = st.checkbox("Upload Your Own Data", value=upload_own_data)
-        show_raw = st.checkbox("Show Raw Data", value=False)
-        enable_regionalization = st.checkbox("Enable Data Regionalization", value=False)
+        show_raw = st.checkbox("Show Raw Data", value=False, key="show_raw_checkbox")
+        enable_regionalization = st.checkbox("Enable Data Regionalization", value=False, key="enable_regionalization_checkbox")
     
-    value_col = None
-    if file_type == "csv":
-        value_col = st.sidebar.selectbox("Value Column", [col for col in df.columns if col not in ["lon", "lat"]])
-    
-    return upload_own_data, show_raw, enable_regionalization, value_col
+    return show_raw, enable_regionalization
 
-
-
-
-def setup_regionalization(df, default_shapefile):
+def setup_regionalization(df, default_shapefile, enable_regionalization):
     """Sets up regionalization feature."""
-    enable_regionalization = st.sidebar.checkbox("Enable Data Regionalization", value=False)
     shp_gdf, shp_tmp_file_path, selected_region, region_column = None, None, None, "name"
     
     if enable_regionalization and df is not None:
@@ -410,7 +410,7 @@ def setup_regionalization(df, default_shapefile):
                         st.write(f"Longitude: [{bounds['min_lon']:.5f}, {bounds['max_lon']:.5f}]")
                         st.write(f"Latitude: [{bounds['min_lat']:.5f}, {bounds['max_lat']:.5f}]")
     
-    return enable_regionalization, shp_gdf, shp_tmp_file_path, selected_region, region_column
+    return shp_gdf, shp_tmp_file_path, selected_region, region_column
 
 # ------------------------------------
 # Section E: Main Visualization Logic
@@ -430,8 +430,8 @@ def render_visualizations(df, file_type, value_col, tmp_file_path,
     if enable_regionalization and selected_region is not None:
         df = filter_data_by_region(df, shp_gdf, selected_region, region_column)
 
-    # Rename value column for CSV
-    if file_type == "csv" and value_col:
+    # Ensure the selected value column is renamed to 'value'
+    if value_col and value_col != "value":
         df = df.rename(columns={value_col: "value"})
 
     # Setup tabs
@@ -440,13 +440,11 @@ def render_visualizations(df, file_type, value_col, tmp_file_path,
 
     # Heatmap Tab
     with heatmap_tab:
-        #st.subheader("Grid Heatmap")
         fig, map_style, color_scale = plot_heatmap(df, file_name)
         st.plotly_chart(fig, use_container_width=True)
 
     # 3D Plot Tab
     with threed_tab:
-        #st.subheader("3D Surface")
         if file_type == "csv":
             is_regular_grid = st.checkbox("Is CSV data on a regular grid?", value=False, key="csv_grid")
             fig = plot_csv_3d(df['lon'], df['lat'], df['value'], is_regular_grid, color_scale, file_name)
@@ -463,8 +461,7 @@ def render_visualizations(df, file_type, value_col, tmp_file_path,
                 ds = xr.open_dataset(current_file_path)
                 lons = ds['lon'].values
                 lats = ds['lat'].values
-                variable = list(ds.data_vars)[0]
-                data = ds[variable].squeeze().values
+                data = ds[value_col].squeeze().values  # Use selected value_col
                 if enable_regionalization and selected_region is not None:
                     bounds = get_region_bounds(shp_gdf, selected_region, region_column)
                     if bounds:
@@ -473,7 +470,7 @@ def render_visualizations(df, file_type, value_col, tmp_file_path,
                         lons = lons[lon_mask]
                         lats = lats[lat_mask]
                         data = data[np.ix_(lat_mask, lon_mask)]
-                fig = plot_netcdf_3d(data, lons, lats, "Longitude", "Latitude", variable, color_scale, file_name)
+                fig = plot_netcdf_3d(data, lons, lats, "Longitude", "Latitude", value_col, color_scale, file_name)
                 st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.error(f"Error creating 3D plot for NetCDF: {e}")
@@ -506,37 +503,40 @@ def render_visualizations(df, file_type, value_col, tmp_file_path,
     # Scatter Plot Tab (CSV only)
     if file_type == "csv" and scatter_tab:
         with scatter_tab[0]:
-            #st.subheader("Scatter Plot")
             fig = plot_csv_scatter(df, map_style, color_scale, file_name)
             st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------
 # Section F: Main App Logic
 # ------------------------------------
-# ------------------------------------
 def main():
     """Main function to run the Streamlit app."""
     default_files, default_shapefile = setup_ui()
     
-    # Initialize upload_own_data
-    upload_own_data = False
+    # Add "Upload Your Own Data" to the dropdown options
+    dropdown_options = list(default_files.keys()) + ["Upload Your Own Data"]
+    selected_option = st.sidebar.selectbox("Select a Default File:", dropdown_options, key="file_select")
     
-    # Load data
-    df, file_type, tmp_file_path, selected_file, uploaded_file_name = load_data_file(upload_own_data, default_files)
+    # Load data file based on dropdown selection
+    df, file_type, tmp_file_path, selected_file, uploaded_file_name, available_cols, value_col = load_data_file(
+        selected_option, default_files
+    )
+    
+    # Setup visualization settings (Advanced Data Settings)
+    show_raw, enable_regionalization = setup_visualization_settings()
     
     if df is not None:
-        # Setup visualization and regionalization settings
-        upload_own_data, show_raw, enable_regionalization, value_col = setup_visualization_settings(df, file_type, upload_own_data)
-        
         # Setup regionalization (only if enabled)
         shp_gdf, shp_tmp_file_path, selected_region, region_column = None, None, None, "name"
         if enable_regionalization:
-            shp_gdf, shp_tmp_file_path, selected_region, region_column = setup_regionalization(df, default_shapefile)
+            shp_gdf, shp_tmp_file_path, selected_region, region_column = setup_regionalization(
+                df, default_shapefile, enable_regionalization
+            )
         
         # Render visualizations
         render_visualizations(df, file_type, value_col, tmp_file_path, 
-                            enable_regionalization, shp_gdf, selected_region, region_column, show_raw,
-                            default_files, selected_file, uploaded_file_name)
+                             enable_regionalization, shp_gdf, selected_region, region_column, show_raw,
+                             default_files, selected_file, uploaded_file_name)
         
         # Clean up temporary files
         if tmp_file_path and os.path.exists(tmp_file_path):
