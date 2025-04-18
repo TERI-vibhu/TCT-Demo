@@ -180,7 +180,7 @@ def plot_heatmap(df, file_name):
         marker_line_width=0,
         colorbar=dict(title="Value"),
         customdata=np.stack((hover_lats, hover_lons), axis=-1),
-        hovertemplate="<b>Lat: %{customdata[0]:.5f}</b><br>Lon: %{customdata[1]:.5f}<br>Value: %{z}<extra></extra>"
+        hovertemplate="<b>Lat: %{customdata[0]:.3f}</b><br>Lon: %{customdata[1]:.3f}<br>Value: %{z}<extra></extra>"
     ))
 
     fig.update_layout(
@@ -204,7 +204,7 @@ def plot_netcdf_3d(data, lons_axis, lats_axis, lon_coord, lat_coord, selected_va
         colorscale=color_scale,
         connectgaps=False,
         colorbar=dict(title=selected_var),
-        hovertemplate=f"{lon_coord}: %{{x:.5f}}<br>{lat_coord}: %{{y:.5f}}<br>Value: %{{z}}<extra></extra>"
+        hovertemplate=f"{lon_coord}: %{{x:.3f}}<br>{lat_coord}: %{{y:.3f}}<br>Value: %{{z}}<extra></extra>"
     ))
     fig.update_layout(
         title=f"3D Surface Plot - {file_name}",
@@ -223,7 +223,7 @@ def plot_csv_3d(x, y, z, is_regular_grid, color_scale, file_name):
             y=y,
             colorscale=color_scale,
             connectgaps=False,
-            hovertemplate="Longitude: %{x:.5f}<br>Latitude: %{y:.5f}<br>Value: %{z}<extra></extra>",
+            hovertemplate="Longitude: %{x:.3f}<br>Latitude: %{y:.3f}<br>Value: %{z}<extra></extra>",
             colorbar=dict(title="Value")
         ))
         fig.update_layout(
@@ -236,7 +236,7 @@ def plot_csv_3d(x, y, z, is_regular_grid, color_scale, file_name):
             x=x, y=y, z=z,
             mode='markers',
             marker=dict(size=3, color=z, colorscale=color_scale, opacity=0.8, colorbar=dict(title="Value")),
-            hovertemplate="Longitude: %{x:.5f}<br>Latitude: %{y:.5f}<br>Value: %{z}<extra></extra>"
+            hovertemplate="Longitude: %{x:.3f}<br>Latitude: %{y:.3f}<br>Value: %{z}<extra></extra>"
         ))
         fig.update_layout(
             title=f"3D Scatter - {file_name}",
@@ -254,7 +254,7 @@ def plot_tiff_3d(data, lons_axis, lats_axis, color_scale, file_name):
         colorscale=color_scale,
         connectgaps=False,
         colorbar=dict(title="Value"),
-        hovertemplate="Longitude: %{x:.5f}<br>Latitude: %{y:.5f}<br>Value: %{z}<extra></extra>"
+        hovertemplate="Longitude: %{x:.3f}<br>Latitude: %{y:.3f}<br>Value: %{z}<extra></extra>"
     ))
     fig.update_layout(
         title=f"3D Surface - {file_name}",
@@ -276,7 +276,7 @@ def plot_csv_scatter(df, map_style, color_scale, file_name):
             opacity=0.7,
             colorbar=dict(title="Value"),
         ),
-        hovertemplate="<b>Lat: %{lat:.5f}</b><br>Lon: %{lon:.5f}<br>Value: %{marker.color}<extra></extra>"
+        hovertemplate="<b>Lat: %{lat:.3f}</b><br>Lon: %{lon:.3f}<br>Value: %{marker.color}<extra></extra>"
     ))
     fig.update_layout(
         mapbox=dict(
@@ -407,8 +407,8 @@ def setup_regionalization(df, default_shapefile, enable_regionalization):
                     bounds = get_region_bounds(shp_gdf, selected_region, region_column)
                     if bounds:
                         st.write("Selected Region Bounds:")
-                        st.write(f"Longitude: [{bounds['min_lon']:.5f}, {bounds['max_lon']:.5f}]")
-                        st.write(f"Latitude: [{bounds['min_lat']:.5f}, {bounds['max_lat']:.5f}]")
+                        st.write(f"Longitude: [{bounds['min_lon']:.3f}, {bounds['max_lon']:.3f}]")
+                        st.write(f"Latitude: [{bounds['min_lat']:.3f}, {bounds['max_lat']:.3f}]")
     
     return shp_gdf, shp_tmp_file_path, selected_region, region_column
 
