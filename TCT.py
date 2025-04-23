@@ -8,16 +8,18 @@ import tempfile
 import os
 import geopandas as gpd
 from shapely.geometry import Point
+import plotly.express as px
 
 # Set Streamlit page configuration
 st.set_page_config(
-    page_title='TERI Climate tool Demo',
+    page_title='TERI Climate Tool Demo',
     page_icon='🌏',
     layout="centered",
     initial_sidebar_state="auto",
     menu_items=None
 )
 
+st.logo("data/TERI Logo Seal.png",size='large')  # Add your logo path here
 # ------------------------------------
 # Section A: Utility Functions
 # ------------------------------------
@@ -25,13 +27,18 @@ def get_file_extension(file_path):
     """Extracts the file extension from a file path."""
     return file_path.split('.')[-1].lower()
 
-def load_csv_data(file_path):
-    """Loads CSV data into a DataFrame."""
+def load_csv_data(file_path, no_data_value):
+    """Loads CSV data into a DataFrame and filters no-data values."""
     df = pd.read_csv(file_path)
+    if no_data_value is not None:
+        for col in df.columns:
+            if df[col].dtype in ['float64', 'int64']:
+                df[col] = df[col].where(df[col] != no_data_value, np.nan)
+    df = df.dropna()
     return df, "csv"
 
-def load_netcdf_data(file_path, selected_variable=None):
-    """Loads NetCDF data and converts it to a DataFrame with the selected variable."""
+def load_netcdf_data(file_path, no_data_value, selected_variable=None):
+    """Loads NetCDF data, filters no-data values, and converts it to a DataFrame."""
     ds = xr.open_dataset(file_path)
     available_vars = list(ds.data_vars)
     if not available_vars:
@@ -39,6 +46,8 @@ def load_netcdf_data(file_path, selected_variable=None):
         return None, None, []
     # If no variable is selected, use the first one
     variable = selected_variable if selected_variable in available_vars else available_vars[0]
+    if no_data_value is not None:
+        ds[variable] = ds[variable].where(ds[variable] != no_data_value, np.nan)
     df = ds[variable].squeeze().to_dataframe().reset_index()
     df = df.dropna()
     df = df.rename(columns={df.columns[-1]: "value"})
@@ -49,11 +58,13 @@ def load_netcdf_data(file_path, selected_variable=None):
         return None, None, []
     return df, "netcdf", available_vars
 
-def load_tiff_data(file_path):
-    """Loads TIFF data and converts it to a DataFrame."""
+def load_tiff_data(file_path, no_data_value):
+    """Loads TIFF data, filters no-data values, and converts it to a DataFrame."""
     with rasterio.open(file_path) as src:
         array = src.read(1)
-        array = np.where(array == src.nodata, np.nan, array)
+        # Use user-specified no-data value if provided, else use file's nodata
+        nodata = no_data_value if no_data_value is not None else src.nodata
+        array = np.where(array == nodata, np.nan, array)
         bounds = src.bounds
         res = src.res
         lons = np.arange(bounds.left + res[0]/2, bounds.right, res[0])
@@ -117,27 +128,58 @@ def calculate_zoom(lat_range, lon_range):
     else:
         return 11
 
+def read_netcdf_ts(file_path, lat, lon, selected_variable=None, line_color='blue'):
+    """Reads NetCDF time series data for a specific lat/lon and creates a time series plot."""
+    try:
+        ds = xr.open_dataset(file_path)
+        available_vars = list(ds.data_vars)
+        if not available_vars:
+            st.error("No variables found in time series NetCDF file.")
+            return None
+        
+        # Use selected variable or first available
+        variable = selected_variable if selected_variable in available_vars else available_vars[0]
+        
+        # Find nearest lat/lon point
+        lat_values = ds['lat'].values if 'lat' in ds.coords else ds['latitude'].values
+        lon_values = ds['lon'].values if 'lon' in ds.coords else ds['longitude'].values
+        lat_idx = np.abs(lat_values - lat).argmin()
+        lon_idx = np.abs(lon_values - lon).argmin()
+        
+        # Extract time series
+        ts_data = ds[variable].isel(
+            lat=lat_idx,
+            lon=lon_idx
+        ).to_dataframe().reset_index()
+        
+        # Create time series plot with user-selected color
+        fig = px.line(
+            ts_data,
+            x='year',
+            y=variable,
+            title=f'Time Series at Lat: {lat:.2f}, Lon: {lon:.2f}',
+            labels={'time': 'Time', variable: 'Value'},
+            color_discrete_sequence=[line_color]
+        )
+        fig.update_layout(
+            xaxis_title="Time",
+            yaxis_title=variable,
+            height=600,
+            width=1000
+        )
+        return fig
+    except Exception as e:
+        st.error(f"Error processing time series data: {e}")
+        return None
+
 # ------------------------------------
 # Section B: Visualization Functions
 # ------------------------------------
-def plot_heatmap(df, file_name):
+def plot_heatmap(df, file_name, cell_width, cell_height, grid_opacity, map_style, color_scale):
     """Creates a heatmap visualization using Plotly Choroplethmapbox."""
     center_lat = df['lat'].mean()
     center_lon = df['lon'].mean()
     zoom = int(calculate_zoom(df['lat'].max() - df['lat'].min(), df['lon'].max() - df['lon'].min()))
-
-    try:
-        x_diff = np.min(np.diff(np.sort(df['lon'].unique())))
-        y_diff = np.min(np.diff(np.sort(df['lat'].unique())))
-    except:
-        x_diff, y_diff = 0.1, 0.1
-
-    with st.sidebar.expander("Advanced Visualization Settings", expanded=False):
-        cell_width = st.number_input("Cell Width (longitude)", value=float(x_diff), step=0.001, key="heatmap_width")
-        cell_height = st.number_input("Cell Height (latitude)", value=float(y_diff), step=0.001, key="heatmap_height")
-        grid_opacity = st.number_input("Grid Opacity", min_value=0.0, max_value=1.0, value=0.8, step=0.05, key="heatmap_opacity")
-        map_style = st.selectbox("Map Style", ["carto-positron", "open-street-map", "stamen-terrain"], key="heatmap_map_style")
-        color_scale = st.selectbox("Color Scale", ["Blues", "Viridis", "Plasma", "Inferno", "Cividis", "Reds"], key="heatmap_color_scale")
 
     features = []
     for i, row in df.iterrows():
@@ -193,7 +235,7 @@ def plot_heatmap(df, file_name):
         width=1000,
         title=f"Grid Heatmap - {file_name}"
     )
-    return fig, map_style, color_scale
+    return fig
 
 def plot_netcdf_3d(data, lons_axis, lats_axis, lon_coord, lat_coord, selected_var, color_scale, file_name):
     """Plots a 3D surface of NetCDF data using Plotly."""
@@ -293,9 +335,15 @@ def plot_csv_scatter(df, map_style, color_scale, file_name):
 # ------------------------------------
 # Section C: Data Loading Functions
 # ------------------------------------
-def load_data_file(selected_option, default_files):
+def load_data_file(default_files, selected_option):
     """Loads data file based on user selection and allows value column selection."""
-    df, file_type, tmp_file_path, selected_file, uploaded_file_name, available_cols, value_col = None, None, None, None, None, [], None
+    df, file_type, tmp_file_path, selected_file, uploaded_file_name, available_cols, value_col, no_data_value = None, None, None, None, None, [], None, None
+    
+    # Initialize no-data value based on selection
+    if selected_option != "Upload Your Own Data" and selected_option in default_files:
+        default_no_data = default_files[selected_option].get('no_data', -9999)
+    else:
+        default_no_data = -9999  # Default for uploaded files
     
     if selected_option == "Upload Your Own Data":
         uploaded_file = st.sidebar.file_uploader("Upload Your Data File", type=["csv", "nc", "netcdf", "tif", "tiff"], key="data_file_uploader")
@@ -306,33 +354,47 @@ def load_data_file(selected_option, default_files):
                 tmp_file.write(uploaded_file.read())
                 tmp_file_path = tmp_file.name
             if ext == "csv":
-                df, file_type = load_csv_data(tmp_file_path)
+                df, file_type = load_csv_data(tmp_file_path, no_data_value)
                 available_cols = [col for col in df.columns if col not in ["lon", "lat"]]
             elif ext in ["nc", "netcdf"]:
-                df, file_type, available_cols = load_netcdf_data(tmp_file_path)
+                df, file_type, available_cols = load_netcdf_data(tmp_file_path, no_data_value)
             elif ext in ["tif", "tiff"]:
-                df, file_type, available_cols = load_tiff_data(tmp_file_path)
+                df, file_type, available_cols = load_tiff_data(tmp_file_path, no_data_value)
             else:
                 st.sidebar.error("Unsupported file type.")
     else:
         selected_file = selected_option
-        file_path = default_files[selected_file]
+        file_path = default_files[selected_file]['avg']
         ext = get_file_extension(file_path)
         if ext == "csv":
-            df, file_type = load_csv_data(file_path)
+            df, file_type = load_csv_data(file_path, no_data_value)
             available_cols = [col for col in df.columns if col not in ["lon", "lat"]]
         elif ext in ["nc", "netcdf"]:
-            df, file_type, available_cols = load_netcdf_data(file_path)
+            df, file_type, available_cols = load_netcdf_data(file_path, no_data_value)
         elif ext in ["tif", "tiff"]:
-            df, file_type, available_cols = load_tiff_data(file_path)
+            df, file_type, available_cols = load_tiff_data(file_path, no_data_value)
         else:
             st.sidebar.error("Unsupported file type.")
     
-    # Select value column after file is loaded
-    if available_cols:
-        value_col = st.sidebar.selectbox("Select Variable", available_cols, key="value_column")
+    # Advanced Data Settings
+    with st.sidebar.expander("Advanced Data Settings", expanded=True):
+        # Variable Selection
+        if available_cols:
+            value_col = st.selectbox("Select Variable", available_cols, key="value_column")
+        else:
+            st.write("No variables available to select.")
+        
+        no_data_value = st.number_input(
+            "No-Data Value",
+            value=default_no_data,
+            step=1,
+            format="%d",
+            key="no_data_value_input"
+        )
+        show_raw = st.checkbox("Show Raw Data", value=False, key="show_raw_checkbox")
+        enable_regionalization = st.checkbox("Enable Data Regionalization", value=False, key="enable_regionalization_checkbox")
     
-    return df, file_type, tmp_file_path, selected_file, uploaded_file_name, available_cols, value_col
+    return df, file_type, tmp_file_path, selected_file, uploaded_file_name, available_cols, value_col, no_data_value, show_raw, enable_regionalization
 
 def load_shapefile_data(shp_source, default_shapefile):
     """Loads shapefile based on user selection."""
@@ -369,23 +431,46 @@ def setup_ui():
     st.markdown("<h1 style='color: #dc6142';'>TERI Climate Tool : Demo </h1>", unsafe_allow_html=True)
     st.sidebar.markdown("<h2 style='color: #dc6142';'>Data and Visualization Controls</h2>", unsafe_allow_html=True)
 
-    # Default file options
+    # Default file options with no-data values
     default_files = {
-        "Rainfall 1994-2023 NetCDF": "IMD_RF_AVG_after1994.nc",
-        "Rainfall 1994-2023 TIFF": "IMD_RF_avg_1994-2023.tif",
-        "Rainfall 1994-2023 CSV": "IMD_RF_AVG_after1994.csv"
+        "Rainfall 1994-2023": {
+            "avg": "data/IMD_RF_AVG_after1994.nc",
+            "ts": "data/RF_yearly.nc",
+            "no_data": -999 # Default no-data value for NetCDF
+        },
+        "Rainfall 1994-2023 TIFF": {
+            "avg": "data/IMD_RF_avg_1994-2023.tif",
+            "ts": None,
+            "no_data": -9999  # Default no-data value for TIFF
+        },
+        "Rainfall 1994-2023 CSV": {
+            "avg": "data/IMD_RF_AVG_after1994.csv",
+            "ts": None,
+            "no_data": -9999  # Default no-data value for CSV
+        }
     }
-    default_shapefile = "India_State_Boundary.shp"  # Replace with actual path
+    default_shapefile = "data/India_State_Boundary.shp"  # Replace with actual path
 
     return default_files, default_shapefile
 
-def setup_visualization_settings():
-    """Sets up visualization settings in the sidebar."""
-    with st.sidebar.expander("Advanced Data Settings", expanded=False):
-        show_raw = st.checkbox("Show Raw Data", value=False, key="show_raw_checkbox")
-        enable_regionalization = st.checkbox("Enable Data Regionalization", value=False, key="enable_regionalization_checkbox")
-    
-    return show_raw, enable_regionalization
+def setup_time_series_settings(default_files, selected_file):
+    """Sets up time series settings in the sidebar."""
+    ts_fig = None
+    # Add latitude/longitude inputs and color selection if time series file exists
+    if selected_file and default_files[selected_file].get('ts'):
+        with st.sidebar.expander("Advanced Time Series Settings", expanded=False):
+            lat_input = st.number_input("Enter Latitude", min_value=-90.0, max_value=90.0, value=28.5, step=0.5, key="lat_input")
+            lon_input = st.number_input("Enter Longitude", min_value=-180.0, max_value=180.0, value=77.5, step=0.5, key="lon_input")
+            # Color options supported by Plotly
+            line_color = st.selectbox(
+                "Line Color",
+                ["blue", "red", "green", "purple", "orange", "black", "cyan", "magenta"],
+                index=0,
+                key="ts_line_color"
+            )
+            if st.button("Generate Time Series"):
+                ts_fig = read_netcdf_ts(default_files[selected_file]['ts'], lat_input, lon_input, line_color=line_color)
+    return ts_fig
 
 def setup_regionalization(df, default_shapefile, enable_regionalization):
     """Sets up regionalization feature."""
@@ -412,12 +497,30 @@ def setup_regionalization(df, default_shapefile, enable_regionalization):
     
     return shp_gdf, shp_tmp_file_path, selected_region, region_column
 
+def setup_visualization_settings(df):
+    """Sets up visualization settings in the sidebar."""
+    try:
+        x_diff = np.min(np.diff(np.sort(df['lon'].unique())))
+        y_diff = np.min(np.diff(np.sort(df['lat'].unique())))
+    except:
+        x_diff, y_diff = 0.1, 0.1
+
+    with st.sidebar.expander("Advanced Visualization Settings", expanded=False):
+        cell_width = st.number_input("Cell Width (longitude)", value=float(x_diff), step=0.001, key="heatmap_width")
+        cell_height = st.number_input("Cell Height (latitude)", value=float(y_diff), step=0.001, key="heatmap_height")
+        grid_opacity = st.number_input("Grid Opacity", min_value=0.0, max_value=1.0, value=0.8, step=0.05, key="heatmap_opacity")
+        map_style = st.selectbox("Map Style", ["carto-positron", "open-street-map", "stamen-terrain"], key="heatmap_map_style")
+        color_scale = st.selectbox("Color Scale", ["Blues", "Viridis", "Plasma", "Inferno", "Cividis", "Reds"], key="heatmap_color_scale")
+    
+    return cell_width, cell_height, grid_opacity, map_style, color_scale
+
 # ------------------------------------
 # Section E: Main Visualization Logic
 # ------------------------------------
 def render_visualizations(df, file_type, value_col, tmp_file_path, 
                          enable_regionalization, shp_gdf, selected_region, region_column, show_raw,
-                         default_files, selected_file, uploaded_file_name=None):
+                         default_files, selected_file, ts_fig, cell_width, cell_height, grid_opacity, 
+                         map_style, color_scale, uploaded_file_name=None):
     """Renders visualizations using tabs."""
     # Determine file name to display
     file_name = selected_file if selected_file else uploaded_file_name if uploaded_file_name else "Unknown File"
@@ -440,13 +543,13 @@ def render_visualizations(df, file_type, value_col, tmp_file_path,
 
     # Heatmap Tab
     with heatmap_tab:
-        fig, map_style, color_scale = plot_heatmap(df, file_name)
+        fig = plot_heatmap(df, file_name, cell_width, cell_height, grid_opacity, map_style, color_scale)
         st.plotly_chart(fig, use_container_width=True)
 
     # 3D Plot Tab
     with threed_tab:
         if file_type == "csv":
-            is_regular_grid = st.checkbox("Is CSV data on a regular grid?", value=False, key="csv_grid")
+            is_regular_grid = st.checkbox("Is Csv data on a regular grid?", value=False, key="csv_grid")
             fig = plot_csv_3d(df['lon'], df['lat'], df['value'], is_regular_grid, color_scale, file_name)
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
@@ -454,7 +557,7 @@ def render_visualizations(df, file_type, value_col, tmp_file_path,
                 st.error("Could not prepare data for 3D plot.")
         elif file_type == "netcdf":
             try:
-                current_file_path = tmp_file_path if tmp_file_path else default_files[selected_file] if selected_file else None
+                current_file_path = tmp_file_path if tmp_file_path else default_files[selected_file]['avg'] if selected_file else None
                 if not current_file_path:
                     st.error("No valid file path provided for NetCDF 3D plot.")
                     return
@@ -476,7 +579,7 @@ def render_visualizations(df, file_type, value_col, tmp_file_path,
                 st.error(f"Error creating 3D plot for NetCDF: {e}")
         elif file_type == "tiff":
             try:
-                current_file_path = tmp_file_path if tmp_file_path else default_files[selected_file] if selected_file else None
+                current_file_path = tmp_file_path if tmp_file_path else default_files[selected_file]['avg'] if selected_file else None
                 if not current_file_path:
                     st.error("No valid file path provided for TIFF 3D plot.")
                     return
@@ -506,6 +609,10 @@ def render_visualizations(df, file_type, value_col, tmp_file_path,
             fig = plot_csv_scatter(df, map_style, color_scale, file_name)
             st.plotly_chart(fig, use_container_width=True)
 
+    # Display Time Series Plot if Generated
+    if ts_fig:
+        st.plotly_chart(ts_fig, use_container_width=True)
+
 # ------------------------------------
 # Section F: Main App Logic
 # ------------------------------------
@@ -513,17 +620,26 @@ def main():
     """Main function to run the Streamlit app."""
     default_files, default_shapefile = setup_ui()
     
-    # Add "Upload Your Own Data" to the dropdown options
-    dropdown_options = list(default_files.keys()) + ["Upload Your Own Data"]
-    selected_option = st.sidebar.selectbox("Select a Default File:", dropdown_options, key="file_select")
-    
-    # Load data file based on dropdown selection
-    df, file_type, tmp_file_path, selected_file, uploaded_file_name, available_cols, value_col = load_data_file(
-        selected_option, default_files
+    # 1. Default File Selection
+    selected_option = st.sidebar.selectbox(
+        "Select a Default File:",
+        list(default_files.keys()) + ["Upload Your Own Data"],
+        key="file_select"
     )
     
-    # Setup visualization settings (Advanced Data Settings)
-    show_raw, enable_regionalization = setup_visualization_settings()
+    # Load data file based on selection
+    df, file_type, tmp_file_path, selected_file, uploaded_file_name, available_cols, value_col, no_data_value, show_raw, enable_regionalization = load_data_file(
+        default_files=default_files,
+        selected_option=selected_option
+    )
+    
+    # 2. Advanced Data Settings (includes Variable Selection, handled in load_data_file)
+    
+    # 3. Advanced Visualization Settings
+    cell_width, cell_height, grid_opacity, map_style, color_scale = setup_visualization_settings(df) if df is not None else (0.1, 0.1, 0.8, "carto-positron", "Blues")
+    
+    # 4. Advanced Time Series Settings
+    ts_fig = setup_time_series_settings(default_files, selected_file)
     
     if df is not None:
         # Setup regionalization (only if enabled)
@@ -536,7 +652,8 @@ def main():
         # Render visualizations
         render_visualizations(df, file_type, value_col, tmp_file_path, 
                              enable_regionalization, shp_gdf, selected_region, region_column, show_raw,
-                             default_files, selected_file, uploaded_file_name)
+                             default_files, selected_file, ts_fig, cell_width, cell_height, 
+                             grid_opacity, map_style, color_scale, uploaded_file_name)
         
         # Clean up temporary files
         if tmp_file_path and os.path.exists(tmp_file_path):
