@@ -8,4 +8,5 @@ numpy
 geopandas
 streamlit_folium
 folium
-folium.plugins
+#folium.plugins
+
