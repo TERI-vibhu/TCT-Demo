@@ -191,7 +191,7 @@ def plot_heatmap(df, file_name, cell_width, cell_height, grid_opacity, map_style
     return fig
 
 def plot_folium_heatmap(df, file_name, map_style, color_scale, radius=15, blur=20):
-    """Creates a Folium-based heatmap with clickable points using streamlit_folium."""
+    """Creates a Folium-based heatmap with a clickable marker for point selection."""
     # Validate DataFrame
     required_columns = ['lat', 'lon', 'value']
     if not all(col in df.columns for col in required_columns):
@@ -234,23 +234,42 @@ def plot_folium_heatmap(df, file_name, map_style, color_scale, radius=15, blur=2
     # Add heatmap layer
     HeatMap(heat_data, radius=radius, blur=blur, max_zoom=18).add_to(m)
 
+    # Initialize clicked_info
+    clicked_info = None
+
     # Display map and capture click event
     map_data = st_folium(m, width=1000, height=600, key=f"folium_heatmap_{file_name}")
 
-    # Process click event
-    clicked_info = None
+    # Process click event to place a marker
     if map_data and map_data.get("last_clicked"):
         lat = map_data["last_clicked"]["lat"]
         lon = map_data["last_clicked"]["lng"]
+        
+        # Add a marker at the clicked location
+        folium.Marker(
+            location=[lat, lon],
+            popup=f"Lat: {lat:.4f}, Lon: {lon:.4f}",
+            icon=folium.Icon(color="blue", icon="info-sign")
+        ).add_to(m)
+
         # Find nearest data point
         distances = np.sqrt((latitudes - lat)**2 + (longitudes - lon)**2)
         nearest_idx = np.argmin(distances)
         nearest_value = values[nearest_idx]
+        nearest_lat = latitudes[nearest_idx]
+        nearest_lon = longitudes[nearest_idx]
+        
         clicked_info = {
             "lat": lat,
             "lon": lon,
-            "nearest_value": nearest_value
+            "nearest_value": nearest_value,
+            "nearest_lat": nearest_lat,
+            "nearest_lon": nearest_lon
         }
+
+    # Re-render the map with the marker (if a click occurred)
+    if clicked_info:
+        map_data = st_folium(m, width=1000, height=600, key=f"folium_heatmap_{file_name}_marker")
 
     return m, clicked_info
 
@@ -542,12 +561,12 @@ def render_visualizations(df, file_type, value_col, tmp_file_path,
         folium_map, clicked_info = plot_folium_heatmap(df, file_name, map_style, color_scale, radius=folium_radius, blur=folium_blur)
         if folium_map:
             if clicked_info:
-                st.success(f"You clicked: Latitude {clicked_info['lat']:.4f}, Longitude {clicked_info['lon']:.4f}")
+                st.success(f"Marker placed at: Latitude {clicked_info['lat']:.4f}, Longitude {clicked_info['lon']:.4f}")
+                st.write(f"Nearest data point: Latitude {clicked_info['nearest_lat']:.4f}, Longitude {clicked_info['nearest_lon']:.4f}")
                 st.write(f"Nearest data point value: {clicked_info['nearest_value']:.4f}")
                 st.write("🌡️ Selected Variable:")
                 selected_variable = st.selectbox("Choose a variable", ["Temperature", "Precipitation", "Wind Speed"], key=f"variable_select_{file_name}")
                 st.write(f"📊 Example Value: {clicked_info['nearest_value']:.4f} (from dataset)")
-
     with tab_objects[2]:
         if file_type == "csv":
             is_regular_grid = st.checkbox("Is CSV data on a regular grid?", value=False, key="csv_grid")
