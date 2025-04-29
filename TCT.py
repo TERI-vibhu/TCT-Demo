@@ -17,7 +17,7 @@ from folium.plugins import HeatMap
 st.set_page_config(
     page_title='TERI Climate Tool Demo',
     page_icon='🌏',
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="auto",
     menu_items=None
 )
@@ -124,7 +124,7 @@ def read_netcdf_ts(file_path, lat, lon, selected_variable=None, line_color='blue
         xaxis_title="Time",
         yaxis_title=variable,
         height=600,
-        width=1000
+        width=1400
     )
     return fig
 
@@ -185,7 +185,7 @@ def plot_heatmap(df, file_name, cell_width, cell_height, grid_opacity, map_style
             zoom=zoom
         ),
         height=900,
-        width=1000,
+        width=1400,
         title=f"Grid Heatmap - {file_name}"
     )
     return fig
@@ -238,7 +238,7 @@ def plot_folium_heatmap(df, file_name, map_style, color_scale, radius=15, blur=2
     clicked_info = None
 
     # Display map and capture click event
-    map_data = st_folium(m, width=1000, height=600, key=f"folium_heatmap_{file_name}")
+    map_data = st_folium(m, width=1400, height=600, key=f"folium_heatmap_{file_name}")
 
     # Process click event to place a marker
     if map_data and map_data.get("last_clicked"):
@@ -269,7 +269,7 @@ def plot_folium_heatmap(df, file_name, map_style, color_scale, radius=15, blur=2
 
     # Re-render the map with the marker (if a click occurred)
     if clicked_info:
-        map_data = st_folium(m, width=1000, height=600, key=f"folium_heatmap_{file_name}_marker")
+        map_data = st_folium(m, width=1400, height=600, key=f"folium_heatmap_{file_name}_marker")
 
     return m, clicked_info
 
@@ -366,7 +366,7 @@ def plot_csv_scatter(df, map_style, color_scale, file_name):
             zoom=calculate_zoom(df['lat'].max() - df['lat'].min(), df['lon'].max() - df['lon'].min())
         ),
         height=900,
-        width=1000,
+        width=1400,
         title=f"Scatter Plot - {file_name}"
     )
     return fig
