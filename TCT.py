@@ -17,7 +17,7 @@ from folium.plugins import HeatMap
 st.set_page_config(
     page_title='TERI Climate Tool Demo',
     page_icon='🌏',
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="auto",
     menu_items=None
 )
@@ -124,7 +124,7 @@ def read_netcdf_ts(file_path, lat, lon, selected_variable=None, line_color='blue
         xaxis_title="Time",
         yaxis_title=variable,
         height=600,
-        width=1400
+        width=1000
     )
     return fig
 
@@ -185,30 +185,35 @@ def plot_heatmap(df, file_name, cell_width, cell_height, grid_opacity, map_style
             zoom=zoom
         ),
         height=900,
-        width=1400,
+        width=1000,
         title=f"Grid Heatmap - {file_name}"
     )
     return fig
+
 def plot_folium_heatmap(df, file_name, map_style, color_scale, radius=15, blur=20):
-    """Creates a Folium-based heatmap with click detection."""
-    
+    """Creates a Folium-based heatmap with a clickable marker for point selection."""
+    # Validate DataFrame
     required_columns = ['lat', 'lon', 'value']
     if not all(col in df.columns for col in required_columns):
         st.error("DataFrame is missing required columns (lat, lon, value) for Folium Heatmap.")
         return None, None
 
+    # Extract data
     latitudes = df['lat'].values
     longitudes = df['lon'].values
     values = df['value'].values
 
+    # Normalize values for heatmap intensity (scales between 0 and 1)
     value_min = np.min(values)
     value_max = np.max(values)
     normalized_values = (values - value_min) / (value_max - value_min) if value_max != value_min else np.ones_like(values)
 
+    # Calculate center and zoom
     center_lat = df['lat'].mean()
     center_lon = df['lon'].mean()
     zoom = calculate_zoom(df['lat'].max() - df['lat'].min(), df['lon'].max() - df['lon'].min())
 
+    # Map Folium tiles to app's map styles
     tile_options = {
         "carto-positron": "CartoDB Positron",
         "open-street-map": "OpenStreetMap",
@@ -216,30 +221,44 @@ def plot_folium_heatmap(df, file_name, map_style, color_scale, radius=15, blur=2
     }
     folium_tiles = tile_options.get(map_style, "OpenStreetMap")
 
+    # Create Folium map
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=zoom,
         tiles=folium_tiles
     )
 
+    # Prepare heatmap data
     heat_data = [[lat, lon, val] for lat, lon, val in zip(latitudes, longitudes, normalized_values)]
+    
+    # Add heatmap layer
     HeatMap(heat_data, radius=radius, blur=blur, max_zoom=18).add_to(m)
 
-    # Display the map ONCE
-    map_data = st_folium(m, width=1400, height=600, key=f"folium_heatmap_{file_name}")
-
-    # Process click info separately
+    # Initialize clicked_info
     clicked_info = None
+
+    # Display map and capture click event
+    map_data = st_folium(m, width=1000, height=600, key=f"folium_heatmap_{file_name}")
+
+    # Process click event to place a marker
     if map_data and map_data.get("last_clicked"):
         lat = map_data["last_clicked"]["lat"]
         lon = map_data["last_clicked"]["lng"]
+        
+        # Add a marker at the clicked location
+        folium.Marker(
+            location=[lat, lon],
+            popup=f"Lat: {lat:.4f}, Lon: {lon:.4f}",
+            icon=folium.Icon(color="blue", icon="info-sign")
+        ).add_to(m)
 
+        # Find nearest data point
         distances = np.sqrt((latitudes - lat)**2 + (longitudes - lon)**2)
         nearest_idx = np.argmin(distances)
         nearest_value = values[nearest_idx]
         nearest_lat = latitudes[nearest_idx]
         nearest_lon = longitudes[nearest_idx]
-
+        
         clicked_info = {
             "lat": lat,
             "lon": lon,
@@ -248,12 +267,11 @@ def plot_folium_heatmap(df, file_name, map_style, color_scale, radius=15, blur=2
             "nearest_lon": nearest_lon
         }
 
-        # Show clicked info separately (not adding marker back to map)
-        st.success(f"Clicked location: Lat {lat:.4f}, Lon {lon:.4f}")
-        st.info(f"Nearest Value: {nearest_value:.4f} at (Lat: {nearest_lat:.4f}, Lon: {nearest_lon:.4f})")
+    # Re-render the map with the marker (if a click occurred)
+    if clicked_info:
+        map_data = st_folium(m, width=1000, height=600, key=f"folium_heatmap_{file_name}_marker")
 
     return m, clicked_info
-
 
 def plot_netcdf_3d(data, lons_axis, lats_axis, lon_coord, lat_coord, selected_var, color_scale, file_name):
     """Plots a 3D surface of NetCDF data using Plotly."""
@@ -348,7 +366,7 @@ def plot_csv_scatter(df, map_style, color_scale, file_name):
             zoom=calculate_zoom(df['lat'].max() - df['lat'].min(), df['lon'].max() - df['lon'].min())
         ),
         height=900,
-        width=1400,
+        width=1000,
         title=f"Scatter Plot - {file_name}"
     )
     return fig
@@ -436,33 +454,21 @@ def setup_ui():
     st.sidebar.markdown("<h2 style='color: #dc6142';'>Data and Visualization Controls</h2>", unsafe_allow_html=True)
 
     default_files = {
-        #"Rainfall 1994-2023": {
-         #   "avg": "data/IMD_RF_AVG_after1994.nc",
-          #  "ts": "data/RF_yearly.nc",
-          #  "no_data": -999
-        #},
-        #"Rainfall 1994-2023 TIFF": {
-         #   "avg": "data/IMD_RF_avg_1994-2023.tif",
-          #  "ts": None,
-           # "no_data": -9999
-        #},
         "Rainfall 1994-2023": {
-            "avg": "data/IMD_RF_AVG_after1994.csv",
+            "avg": "data/IMD_RF_AVG_after1994.nc",
+            "ts": "data/RF_yearly.nc",
+            "no_data": -999
+        },
+        "Rainfall 1994-2023 TIFF": {
+            "avg": "data/IMD_RF_avg_1994-2023.tif",
             "ts": None,
             "no_data": -9999
         },
-        "Tmin-2081-2100": {
-            "avg": "data/Tmin-2081-2100.nc",
+        "Rainfall 1994-2023 CSV": {
+            "avg": "data/IMD_RF_AVG_after1994.csv",
             "ts": None,
-            "no_data": 99.99
-        },
-
-        "Tmax-2081-2100": {
-            "avg": "data/Tmax-2081-2100.nc",
-            "ts": None,
-            "no_data": 99.99
+            "no_data": -9999
         }
-
     }
     default_shapefile = "data/India_State_Boundary.shp"
     return default_files, default_shapefile
