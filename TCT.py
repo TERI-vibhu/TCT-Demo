@@ -268,8 +268,8 @@ def plot_folium_heatmap(df, file_name, map_style, color_scale, radius=15, blur=2
         }
 
     # Re-render the map with the marker (if a click occurred)
-    #if clicked_info:
-     #   map_data = st_folium(m, width=1000, height=600, key=f"folium_heatmap_{file_name}_marker")
+    if clicked_info:
+        map_data = st_folium(m, width=1000, height=600, key=f"folium_heatmap_{file_name}_marker")
 
     return m, clicked_info
 
