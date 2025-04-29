@@ -452,24 +452,35 @@ def setup_ui():
     """Sets up the Streamlit app UI."""
     st.markdown("<h1 style='color: #dc6142';'>TERI Climate Tool : Demo </h1>", unsafe_allow_html=True)
     st.sidebar.markdown("<h2 style='color: #dc6142';'>Data and Visualization Controls</h2>", unsafe_allow_html=True)
-
     default_files = {
-        "Rainfall 1994-2023": {
-            "avg": "data/IMD_RF_AVG_after1994.nc",
-            "ts": "data/RF_yearly.nc",
-            "no_data": -999
-        },
-        "Rainfall 1994-2023 TIFF": {
-            "avg": "data/IMD_RF_avg_1994-2023.tif",
-            "ts": None,
-            "no_data": -9999
-        },
-        "Rainfall 1994-2023 CSV": {
-            "avg": "data/IMD_RF_AVG_after1994.csv",
-            "ts": None,
-            "no_data": -9999
+            #"Rainfall 1994-2023": {
+            #   "avg": "data/IMD_RF_AVG_after1994.nc",
+            #  "ts": "data/RF_yearly.nc",
+            #  "no_data": -999
+            #},
+            #"Rainfall 1994-2023 TIFF": {
+            #   "avg": "data/IMD_RF_avg_1994-2023.tif",
+            #  "ts": None,
+            # "no_data": -9999
+            #},
+            "Rainfall 1994-2023": {
+                "avg": "data/IMD_RF_AVG_after1994.csv",
+                "ts": None,
+                "no_data": -9999
+            },
+            "Tmin-2081-2100": {
+                "avg": "data/Tmin-2081-2100.nc",
+                "ts": None,
+                "no_data": 99.99
+            },
+
+            "Tmax-2081-2100": {
+                "avg": "data/Tmax-2081-2100.nc",
+                "ts": None,
+                "no_data": 99.99
+            }
+
         }
-    }
     default_shapefile = "data/India_State_Boundary.shp"
     return default_files, default_shapefile
 
