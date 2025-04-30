@@ -39,7 +39,7 @@ DEFAULT_FILES = {
         "no_data": 99.99
     },
     "Tmax Projection": {
-        "avg": "/home/vibhu/venv/TCT/bin/data/Tmax-2081-2100_20yravg.nc",
+        "avg": "data/Tmax-2081-2100_20yravg.nc",
         "ts": None,
         "no_data": 99.99
     },    
