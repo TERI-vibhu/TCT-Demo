@@ -34,7 +34,7 @@ DEFAULT_FILES = {
     #    "no_data": -999
     #},
     "Tmin Projection": {
-        "avg": "data/Tmin-2081-2100_20yravg.csv",
+        "avg": "data/Tmin-2081-2100_20yravg.nc",
         "ts": None,
         "no_data": 99.99
     },
