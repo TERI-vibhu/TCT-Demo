@@ -7,7 +7,7 @@ import solara
 from uuid import uuid4
 from sklearn.neighbors import NearestNeighbors
 import solara.lab  # Import for ThemeToggle
-
+from scipy.stats import linregress
 # ------------------------------------
 # Section A: Configuration
 # ------------------------------------
@@ -131,8 +131,10 @@ def plot_heatmap(df, file_name, value_col, cell_dimensions, color_scale, map_sty
         title=f"Heatmap - {file_name}"
     )
     return fig
+
+
 def read_time_series(file_path, lat, lon, color):
-    """Reads NetCDF time series data and creates a line plot."""
+    """Reads NetCDF time series data, creates a line plot with trend line, and annotates slope, p-value, and trend direction."""
     ds = xr.open_dataset(file_path)
     var = list(ds.data_vars)[0]
     
@@ -142,8 +144,20 @@ def read_time_series(file_path, lat, lon, color):
     
     # Extract time series data
     ts_data = ds[var].isel(lat=lat_idx, lon=lon_idx).to_dataframe().reset_index()
-    #print(ts_data)
-    # Create line plot
+    
+    # Perform linear regression
+    x = ts_data["year"].values
+    y = ts_data[var].values
+    slope, intercept, r_value, p_value, std_err = linregress(x, y)
+    
+    # Determine trend direction
+    trend_direction = "Increasing" if p_value < 0.05 and slope > 0 else "Decreasing" if p_value < 0.05 else "No Significant Trend"
+    
+    # Calculate trend line
+    trend_line = intercept + slope * x
+    ts_data["trend"] = trend_line
+    
+    # Create line plot with original data
     fig = px.line(
         ts_data,
         x="year",
@@ -152,17 +166,52 @@ def read_time_series(file_path, lat, lon, color):
         labels={"year": "Year", var: "Value"},
         color_discrete_sequence=[color]
     )
+    
+    # Add trend line
+    fig.add_scatter(
+        x=ts_data["year"],
+        y=ts_data["trend"],
+        mode="lines",
+        name="Trend Line",
+        line=dict(color="red", dash="dash")
+    )
+    
+    # Annotate slope, p-value, and trend direction in top-right corner
+    annotation_text = f"Slope: {slope:.4f}<br>p-value: {p_value:.4f}<br>Trend: {trend_direction}"
+    # Define coordinates for annotation
+    x_pos = ts_data["year"].max()  # Right edge of x-axis
+    y_pos = ts_data[var].min()  # High, but not max, value of y
+
+    fig.add_annotation(
+        x=x_pos,
+        y=y_pos,
+        text=annotation_text,
+        showarrow=False,
+        xanchor="right",
+        yanchor="top",
+        bgcolor="white",
+        bordercolor="black",
+        borderpad=4,
+        opacity=0.8,
+        font=dict(size=12)
+    )    
+    # Update layout
     fig.update_layout(
         xaxis_title="Year",
         yaxis_title=var,
         height=600,
-        width=800
+        width=800,
+        showlegend=True
     )
+    
     return fig
 
 # ------------------------------------
 # Section C: Solara App
 # ------------------------------------
+@solara.component
+def Layout(children=[]):
+    return solara.AppLayout(children=children, sidebar_open=False)
 @solara.component
 def Page():
     # Reactive state for error messages, figure, DataFrame, click data
@@ -310,7 +359,7 @@ def Page():
                     step=0.1,
                     on_value=set_opacity
                 )
-                solara.Info("Select a dataset and options to customize the heatmap display.")
+                #solara.Info("Select a dataset and options to customize the heatmap display.")
         
         with solara.Card("Time Series Settings", margin=0, elevation=0):
             with solara.Column():
@@ -331,7 +380,7 @@ def Page():
                     text=True,
                     on_click=generate_time_series_plot
                 )
-                solara.Info("Click on the map to update coordinates and generate a time series plot, or enter coordinates manually.")
+                #solara.Info("Click on the map to update coordinates and generate a time series plot, or enter coordinates manually.")
 
     with solara.VBox():
         if error:
