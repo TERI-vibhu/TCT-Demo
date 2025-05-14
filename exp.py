@@ -8,16 +8,21 @@ from uuid import uuid4
 from sklearn.neighbors import NearestNeighbors
 import solara.lab  # Import for ThemeToggle
 from scipy.stats import linregress
+import geopandas as gpd  # Added for shapefile handling
+
 # ------------------------------------
 # Section A: Configuration
 # ------------------------------------
+DEFAULT_FILE_ID = "Rainfall Observed"  # Define default file ID explicitly
+DEFAULT_SHAPEFILE_PATH = "/home/vibhu/venv/TCT/bin/data/India_State_Boundary.shp"  # Path to the shapefile
+
 DEFAULT_FILE_ID = "Rainfall Observed"  # Define default file ID explicitly
 
 FILE_CONFIG = [
     {
         "id": "Rainfall Observed",
         "name": "Rainfall Observed",
-        "description": "Rainfall data from IMD 30 Year ",
+        "description": "Rainfall data from IMD 30 Year",
         "ts": "data/RF_yearly.nc",
         "avg": "data/IMD_RF_AVG_after1994.nc",
         "no_data": -999,
@@ -27,13 +32,21 @@ FILE_CONFIG = [
         "id": "Minimum Temperature Projected Delta",
         "name": "Minimum Temperature Projected Delta",
         "description": "Minimum temperature projected delta from IMD",
-        "ts": "data/Tmin-2081-2100_yearly.nc",
-        "avg": "data/Tmin-2081-2100_20yravg.nc",
+        "ts": "data/Tmax-2081-2100_yearly.nc",
+        "avg": "data/Tmin_1980-2100.nc",
+        "no_data": 99.9,
+        "default_color_scale": "Reds"
+    },
+    {
+        "id": "Maximum Temperature Projected Delta",
+        "name": "Maximum Temperature Projected Delta",
+        "description": "Maximum temperature projected delta from IMD",
+        "ts": "data/Tmax-2081-2100_yearly.nc",
+        "avg": "data/Tmax_1980-2100.nc",
         "no_data": 99.9,
         "default_color_scale": "Reds"
     }
 ]
-
 
 # Define available options for dropdowns
 COLOR_SCALE_OPTIONS = ["Blues", "Viridis", "Reds", "Greens", "Inferno", "Magma"]
@@ -81,8 +94,8 @@ def calculate_zoom(lat_range, lon_range):
     r = max(lat_range, lon_range)
     return 1 if r > 100 else 2 if r > 30 else 4 if r > 15 else 5 if r > 5 else 7 if r > 1 else 10 if r > 0.1 else 13
 
-def plot_heatmap(df, file_name, value_col, cell_dimensions, color_scale, map_style, opacity):
-    """Creates a heatmap using Plotly Choroplethmap with a map overlay."""
+def plot_heatmap(df, file_name, value_col, cell_dimensions, color_scale, map_style, opacity, shapefile_path=DEFAULT_SHAPEFILE_PATH):
+    """Creates a heatmap using Plotly Choroplethmap with a map and shapefile overlay."""
     CELL_HEIGHT = cell_dimensions
     CELL_WIDTH = cell_dimensions
     center = {"lat": df["lat"].mean(), "lon": df["lon"].mean()}
@@ -108,7 +121,7 @@ def plot_heatmap(df, file_name, value_col, cell_dimensions, color_scale, map_sty
     
     geojson = {"type": "FeatureCollection", "features": features}
     fig = go.Figure(
-        go.Choroplethmap(  # Changed from Choroplethmapbox to Choroplethmap
+        go.Choroplethmap(
             geojson=geojson,
             locations=[f["id"] for f in features],
             z=[f["properties"]["value"] for f in features],
@@ -120,8 +133,37 @@ def plot_heatmap(df, file_name, value_col, cell_dimensions, color_scale, map_sty
             hovertemplate="<b>Lat: %{customdata[0]:.5f}</b><br>Lon: %{customdata[1]:.5f}<br>Value: %{z}<extra></extra>"
         )
     )
+
+    # Overlay shapefile boundaries
+    if shapefile_path:
+        try:
+            gdf = gpd.read_file(shapefile_path)
+            for geom in gdf.geometry:
+                if geom.geom_type == "Polygon":
+                    coords = [geom.exterior.coords]
+                elif geom.geom_type == "MultiPolygon":
+                    coords = [poly.exterior.coords for poly in geom.geoms]
+                else:
+                    continue  # Skip non-polygon geometries
+                
+                for ring in coords:
+                    lons, lats = zip(*ring)
+                    fig.add_trace(
+                        go.Scattergeo(
+                            lon=lons,
+                            lat=lats,
+                            mode="lines",
+                            line=dict(width=1, color="black"),
+                            opacity=0.7,
+                            showlegend=False,
+                            hoverinfo="skip"
+                        )
+                    )
+        except Exception as e:
+            print(f"Error loading shapefile: {e}")
+
     fig.update_layout(
-        map=dict(  # Changed from mapbox to map
+        map=dict(
             style=map_style,
             center=center,
             zoom=zoom
@@ -131,7 +173,6 @@ def plot_heatmap(df, file_name, value_col, cell_dimensions, color_scale, map_sty
         title=f"Heatmap - {file_name}"
     )
     return fig
-
 
 def read_time_series(file_path, lat, lon, color):
     """Reads NetCDF time series data, creates a line plot with trend line, and annotates slope, p-value, and trend direction."""
@@ -178,7 +219,6 @@ def read_time_series(file_path, lat, lon, color):
     
     # Annotate slope, p-value, and trend direction in top-right corner
     annotation_text = f"Slope: {slope:.4f}<br>p-value: {p_value:.4f}<br>Trend: {trend_direction}"
-    # Define coordinates for annotation
     x_pos = ts_data["year"].max()  # Right edge of x-axis
     y_pos = ts_data[var].min()  # High, but not max, value of y
 
@@ -212,6 +252,7 @@ def read_time_series(file_path, lat, lon, color):
 @solara.component
 def Layout(children=[]):
     return solara.AppLayout(children=children, sidebar_open=False)
+
 @solara.component
 def Page():
     # Reactive state for error messages, figure, DataFrame, click data
@@ -288,7 +329,7 @@ def Page():
             if value_column:
                 dfics = df[value_column].notnull()
                 columns_to_keep = ["lat", "lon", value_column]
-                df = df[dfics][columns_to_keep]  # Fixed typo: dfics was incorrectly used
+                df = df[dfics][columns_to_keep]
                 
                 file_name = selected_file["name"]
                 heatmap_fig = plot_heatmap(df, file_name, value_column, cell_dimensions, color_scale, map_style, opacity)
@@ -312,7 +353,7 @@ def Page():
     
     # Render the UI
     with solara.AppBar():
-        solara.Image("data/TERI Logo Seal.png", width="50px", classes=["mx-2"])
+        solara.Image("data/logo/TERI 50 Year Logo Seal.png", width="80px", classes=["mx-2"])
         solara.AppBarTitle("Rainfall Data Visualization")
         solara.lab.ThemeToggle()  # Theme toggle button
 
@@ -321,16 +362,14 @@ def Page():
             with solara.Column():
                 solara.Markdown("### Customize Map Appearance")
                 
-                # Fixed file selection dropdown
                 solara.Select(
                     label="Select Dataset",
                     value=selected_file_id,
-                    values=[f["id"] for f in FILE_CONFIG],  # Use IDs directly
+                    values=[f["id"] for f in FILE_CONFIG],
                     dense=True,
-                    on_value=lambda id: set_selected_file_id(id)  # Explicitly set ID
+                    on_value=lambda id: set_selected_file_id(id)
                 )
                 
-                # Value column selection dropdown
                 solara.Select(
                     label="Value Column",
                     value=value_column,
@@ -347,6 +386,7 @@ def Page():
                 )
                 solara.Select(
                     label="Map Style",
+                   #value=map -_style,
                     value=map_style,
                     values=MAP_STYLE_OPTIONS,
                     on_value=set_map_style
@@ -359,7 +399,6 @@ def Page():
                     step=0.1,
                     on_value=set_opacity
                 )
-                #solara.Info("Select a dataset and options to customize the heatmap display.")
         
         with solara.Card("Time Series Settings", margin=0, elevation=0):
             with solara.Column():
@@ -380,7 +419,6 @@ def Page():
                     text=True,
                     on_click=generate_time_series_plot
                 )
-                #solara.Info("Click on the map to update coordinates and generate a time series plot, or enter coordinates manually.")
 
     with solara.VBox():
         if error:
